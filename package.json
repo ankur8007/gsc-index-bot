@@ -1,0 +1,45 @@
+{
+  "name": "gsc-index-bot",
+  "version": "1.0.0",
+  "description": "Automate Google Search Console 'Request indexing' by driving the logged-in web UI with Playwright. No API keys. Tracks submissions in a ledger and keeps your URL queue clean.",
+  "type": "module",
+  "main": "gsc-index-bot.mjs",
+  "bin": {
+    "gsc-index-bot": "gsc-index-bot.mjs"
+  },
+  "scripts": {
+    "start": "node gsc-index-bot.mjs",
+    "login": "node gsc-index-bot.mjs --headed",
+    "status": "node gsc-index-bot.mjs --status",
+    "prune": "node gsc-index-bot.mjs --prune",
+    "check": "node --check gsc-index-bot.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "keywords": [
+    "google-search-console",
+    "gsc",
+    "seo",
+    "request-indexing",
+    "indexing",
+    "playwright",
+    "automation",
+    "crawl",
+    "sitemap"
+  ],
+  "author": "ankur8007",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ankur8007/gsc-index-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ankur8007/gsc-index-bot/issues"
+  },
+  "homepage": "https://github.com/ankur8007/gsc-index-bot#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

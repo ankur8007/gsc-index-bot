@@ -1,0 +1,18 @@
+{
+  "// property": "Your Search Console property, EXACTLY as it appears in GSC.",
+  "// property (domain)": "sc-domain:example.com",
+  "// property (url-prefix)": "https://example.com/",
+  "property": "sc-domain:example.com",
+
+  "// urlsFile": "File holding the URLs to request-index (one per line, # = comment).",
+  "urlsFile": "urls.txt",
+
+  "// limit": "Max URLs to process per run. Google caps request-indexing at ~10-12/day.",
+  "limit": 10,
+
+  "// cooldownDays": "Don't re-request a URL submitted within this many days.",
+  "cooldownDays": 14,
+
+  "// sitemap": "Optional fallback: a local path or http(s) sitemap URL to pull URLs from when urlsFile is empty.",
+  "sitemap": ""
+}

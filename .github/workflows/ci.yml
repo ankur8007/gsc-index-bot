@@ -1,0 +1,27 @@
+name: CI
+
+# Lightweight check: make sure the script parses and installs cleanly.
+# We skip lifecycle scripts so CI does not download a Chromium build it never uses.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies (no browser download)
+        run: npm install --ignore-scripts
+
+      - name: Syntax check
+        run: node --check gsc-index-bot.mjs

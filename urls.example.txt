@@ -1,0 +1,12 @@
+# URLs for gsc-index-bot to request-index (one per line).
+# Lines starting with # are comments. Blank lines are ignored.
+#
+# Put the highest-priority / newest / not-yet-indexed URLs at the TOP.
+# Google caps request-indexing at ~10-12 URLs/day, so the top of this list wins.
+#
+# Copy this file to urls.txt and add your own URLs. When a URL becomes indexed,
+# the bot marks it in the ledger and drops it from the queue automatically.
+
+https://example.com/
+https://example.com/new-page/
+https://example.com/blog/latest-post/

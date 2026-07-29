@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Saved Google login session — NEVER commit (contains your auth cookies)
+.gsc-profile/
+
+# Run output: logs, screenshots, ledger, archives
+output/
+
+# Your personal config and URL queue (ship the .example.* files instead)
+config.json
+urls.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
