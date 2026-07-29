@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0]
+
+### Added
+- `--discover` mode: scan every URL in a sitemap/list read-only and write
+  `output/needs-indexing.txt` (the pages Google is missing) without spending any
+  request-indexing quota.
+
 ## [1.0.0]
 
 Initial public release.

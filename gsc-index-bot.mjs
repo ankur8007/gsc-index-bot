@@ -31,6 +31,8 @@
 //   --cooldown=N       days before re-requesting a URL (default 14)
 //   --urls=<file>      URL list file (default urls.txt; one per line, # = comment)
 //   --sitemap=<path|url>  fallback source of URLs if the list file is empty
+//   --discover         scan every URL read-only and write output/needs-indexing.txt
+//                      (the pages Google is missing) — uses NO request-indexing quota
 //   --force            request even URLs already "on Google" / within cooldown
 //   --dry              inspect + log only, never click Request indexing
 //   --validate         also click "Validate fix" on Page-indexing issues (best effort)
@@ -70,7 +72,9 @@ const headed = has('headed');
 const dry = has('dry');
 const force = has('force');
 const doValidate = has('validate');
+const discover = has('discover');
 const statusOnly = has('status');
+const limitPassed = args.some((a) => a.startsWith('--limit='));
 const limit = Number(flag('limit', cfg.limit ?? '10')) || 10;
 const cooldownDays = Number(flag('cooldown', cfg.cooldownDays ?? '14')) || 14;
 const urlsFile = flag('urls', cfg.urlsFile || 'urls.txt');
@@ -147,6 +151,9 @@ if (!urls.length) {
   console.error(`No URLs found. Add URLs to ${urlsFile} (one per line) or set --sitemap.`);
   process.exit(1);
 }
+// Full list is kept for --discover (scan everything). The normal request run is
+// capped to --limit so it never blows past Google's daily request-indexing quota.
+const allUrls = urls.slice();
 urls = urls.slice(0, limit);
 
 // Remove URLs the ledger marks as INDEXED from the queue file (keeps comments &
@@ -235,35 +242,51 @@ function safe(u) {
   return u.replace(/^https?:\/\//, '').replace(/[^\w.-]+/g, '_').slice(0, 60);
 }
 
+// Inspect a single URL in GSC and read its index verdict — WITHOUT requesting
+// indexing. Shared by both the normal run and --discover. Returns the coverage
+// string ("on Google" / "not on Google" / "on Google with issues" / null) and a
+// noOmnibox flag if the inspect box couldn't be found (usually a load/login issue).
+async function inspectVerdict(u) {
+  // Always start each URL from a CLEAN dashboard. A leftover "Indexing requested"
+  // modal from a previous URL overlays and blocks the omnibox otherwise.
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.goto(DASHBOARD, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(5000);
+  // Drive the "Inspect any URL" omnibox (deep-linking the inspect route 404s).
+  const box = await findOmnibox();
+  if (!box) return { coverage: null, noOmnibox: true };
+  await box.click();
+  await box.fill('');
+  await box.type(u, { delay: 15 });
+  await box.press('Enter');
+
+  // Inspection runs ("Retrieving data from Google Index…"); wait for a verdict.
+  const insDeadline = Date.now() + 60000;
+  let bodyText = '';
+  while (Date.now() < insDeadline) {
+    await page.waitForTimeout(2500);
+    bodyText = await page.locator('body').innerText().catch(() => '');
+    if (/URL is on Google|URL is not on Google|is on Google, but has issues/i.test(bodyText)) break;
+    if (/Request indexing/i.test(bodyText)) break;
+  }
+  let coverage = null;
+  if (/URL is on Google/i.test(bodyText)) coverage = 'on Google';
+  else if (/URL is not on Google/i.test(bodyText)) coverage = 'not on Google';
+  else if (/is on Google, but has issues/i.test(bodyText)) coverage = 'on Google with issues';
+  return { coverage, noOmnibox: false };
+}
+
 async function requestIndex(u) {
   const rec = { url: u, ts: new Date().toISOString(), status: 'unknown', coverage: null, requested: false };
   try {
-    // Always start each URL from a CLEAN dashboard. A leftover "Indexing requested"
-    // modal from the previous URL overlays and blocks the omnibox otherwise.
-    await page.keyboard.press('Escape').catch(() => {});
-    await page.keyboard.press('Escape').catch(() => {});
-    await page.goto(DASHBOARD, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(5000);
-    // Drive the "Inspect any URL" omnibox (deep-linking the inspect route 404s).
-    const box = await findOmnibox();
-    if (!box) { rec.status = 'no-omnibox'; await page.screenshot({ path: path.join(OUT, `${stamp}__${safe(u)}.png`) }).catch(() => {}); return rec; }
-    await box.click();
-    await box.fill('');
-    await box.type(u, { delay: 15 });
-    await box.press('Enter');
-
-    // Inspection runs ("Retrieving data from Google Index…"); wait for a verdict.
-    const insDeadline = Date.now() + 60000;
-    let bodyText = '';
-    while (Date.now() < insDeadline) {
-      await page.waitForTimeout(2500);
-      bodyText = await page.locator('body').innerText().catch(() => '');
-      if (/URL is on Google|URL is not on Google|is on Google, but has issues/i.test(bodyText)) break;
-      if (/Request indexing/i.test(bodyText)) break;
+    const verdict = await inspectVerdict(u);
+    if (verdict.noOmnibox) {
+      rec.status = 'no-omnibox';
+      await page.screenshot({ path: path.join(OUT, `${stamp}__${safe(u)}.png`) }).catch(() => {});
+      return rec;
     }
-    if (/URL is on Google/i.test(bodyText)) rec.coverage = 'on Google';
-    else if (/URL is not on Google/i.test(bodyText)) rec.coverage = 'not on Google';
-    else if (/is on Google, but has issues/i.test(bodyText)) rec.coverage = 'on Google with issues';
+    rec.coverage = verdict.coverage;
 
     if (rec.coverage === 'on Google' && !force) {
       rec.status = 'skipped-already-indexed';
@@ -378,9 +401,77 @@ async function validateFixes() {
   console.log('  ' + log.validateFix);
 }
 
+// ---- Discover mode -----------------------------------------------------------
+// Inspect every URL (read-only, NO request-indexing) and write out just the ones
+// Google is missing, so you get a ready-made "needs indexing" list without
+// spending any request quota. Inspection has its own (much higher) daily limit,
+// so scanning a large sitemap is fine, but very large sites may still hit it.
+async function discoverMode(list) {
+  console.log(`\ngsc-index-bot — DISCOVER mode`);
+  console.log(`Inspecting ${list.length} URLs (read-only, no indexing requests)\n`);
+  const notOnGoogle = [], withIssues = [], indexed = [], unknown = [];
+  for (let i = 0; i < list.length; i++) {
+    const u = list[i];
+    process.stdout.write(`[${i + 1}/${list.length}] ${u}  … `);
+    let coverage = null;
+    try {
+      ({ coverage } = await inspectVerdict(u));
+    } catch (e) {
+      console.log('error');
+      unknown.push(u);
+      continue;
+    }
+    if (coverage === 'on Google') {
+      indexed.push(u);
+      // Keep the ledger honest so a later run skips these for free.
+      ledger[u] = { ...(ledger[u] || {}), indexed: true, indexedSeenAt: (ledger[u]?.indexedSeenAt || today()), lastStatus: 'discovered-indexed' };
+      saveLedger(ledger);
+    } else if (coverage === 'not on Google') {
+      notOnGoogle.push(u);
+    } else if (coverage === 'on Google with issues') {
+      withIssues.push(u);
+    } else {
+      unknown.push(u);
+    }
+    console.log(coverage || 'unknown');
+    await page.waitForTimeout(2000);
+  }
+
+  // Write the "needs indexing" queue: pages not on Google, plus pages with issues
+  // (which usually benefit from a resubmit). This file is ready to feed back in.
+  const needs = [...notOnGoogle, ...withIssues];
+  const outFile = path.join(OUT, 'needs-indexing.txt');
+  const header =
+    `# Pages that need indexing — generated by gsc-index-bot --discover on ${today()}.\n` +
+    `# ${notOnGoogle.length} not on Google, ${withIssues.length} on Google with issues.\n` +
+    `# Feed these back in:  node gsc-index-bot.mjs --urls=output/needs-indexing.txt\n\n`;
+  fs.writeFileSync(outFile, header + needs.join('\n') + (needs.length ? '\n' : ''));
+
+  console.log(`\n=== DISCOVER SUMMARY (${list.length} scanned) ===`);
+  console.log(`  already on Google:   ${indexed.length}`);
+  console.log(`  NOT on Google:       ${notOnGoogle.length}`);
+  console.log(`  on Google w/ issues: ${withIssues.length}`);
+  console.log(`  unknown:             ${unknown.length}`);
+  console.log(`\n  Needs-indexing list (${needs.length} URLs): ${outFile}`);
+  if (needs.length) {
+    console.log(`  Request indexing for them with:`);
+    console.log(`    node gsc-index-bot.mjs --urls=output/needs-indexing.txt`);
+  }
+}
+
 // ---- Run ---------------------------------------------------------------------
 try {
   await ensureLoggedIn();
+
+  // --discover: scan the full list (respect --limit only if the user set it),
+  // write the "needs indexing" file, and exit without requesting anything.
+  if (discover) {
+    const scanList = limitPassed ? allUrls.slice(0, limit) : allUrls;
+    await discoverMode(scanList);
+    await ctx.close();
+    process.exit(0);
+  }
+
   console.log(`\ngsc-index-bot — property ${RESOURCE}`);
   console.log(`Mode: ${dry ? 'DRY (no requests)' : 'LIVE'} | limit ${limit} | ${urls.length} URLs\n`);
 

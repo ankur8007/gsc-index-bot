@@ -81,6 +81,24 @@ npm run prune          # drop indexed URLs from urls.txt — no browser
 
 ---
 
+## Find pages that need indexing (`--discover`)
+
+Don't want to figure out by hand which pages Google is missing? Point the bot at your sitemap and let it scan:
+
+```bash
+node gsc-index-bot.mjs --discover --sitemap="https://example.com/sitemap.xml"
+```
+
+It inspects every URL **read-only** (no Request-indexing clicks, so it costs **zero** request quota) and writes the pages that aren't on Google to `output/needs-indexing.txt`. Then feed that list back in:
+
+```bash
+node gsc-index-bot.mjs --urls=output/needs-indexing.txt
+```
+
+`--discover` scans the whole list by default; add `--limit=N` to cap it. URL inspection has its own, much higher daily limit than request-indexing, so scanning a normal sitemap is fine (very large sites may still hit it).
+
+---
+
 ## Flags
 
 | Flag | Description |
@@ -91,6 +109,7 @@ npm run prune          # drop indexed URLs from urls.txt — no browser
 | `--cooldown=N` | Days before a URL may be re-requested (default `14`) |
 | `--urls=<file>` | URL list file (default `urls.txt`) |
 | `--sitemap=<path\|url>` | Fallback source of URLs when the list file is empty |
+| `--discover` | Scan every URL read-only and write `output/needs-indexing.txt` (the pages Google is missing). Uses **no** request-indexing quota. |
 | `--force` | Request even URLs already on Google / within cooldown |
 | `--dry` | Inspect and log only — never click Request indexing |
 | `--validate` | Also click "Validate fix" on Page-indexing issues (best effort) |

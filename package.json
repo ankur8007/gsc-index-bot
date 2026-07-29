@@ -1,6 +1,6 @@
 {
   "name": "gsc-index-bot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Automate Google Search Console 'Request indexing' by driving the logged-in web UI with Playwright. No API keys. Tracks submissions in a ledger and keeps your URL queue clean.",
   "type": "module",
   "main": "gsc-index-bot.mjs",
